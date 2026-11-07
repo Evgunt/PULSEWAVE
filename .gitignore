@@ -24,3 +24,5 @@ dist/
 # Local third-party executables (download separately)
 singBox/sing-box.exe
 singBox/wintun.dll
+singBox/libcronet.dll
+singBox/LICENSE
