@@ -1,0 +1,26 @@
+# Local proxy data: may contain credentials, UUIDs, IP addresses and subscription URLs
+fast_vless.txt
+sources.txt
+*.subscription
+subscriptions/
+
+# Runtime state and logs
+*.log
+*.json.tmp
+.fast_vless_checkpoint.json
+sing_box_config.json
+vlesschecker_tun.json
+pending_tunnel.json
+vlesschecker_ui.json
+
+# Python/build artifacts
+.venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+
+# Local third-party executables (download separately)
+singBox/sing-box.exe
+singBox/wintun.dll

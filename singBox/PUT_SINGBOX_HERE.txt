@@ -1,0 +1,5 @@
+Download the official Windows x64 sing-box release from:
+https://github.com/SagerNet/sing-box/releases
+
+Place sing-box.exe in this folder. Do not commit the executable unless you have
+fulfilled the upstream GPL-3.0-or-later redistribution requirements.
