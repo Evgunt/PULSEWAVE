@@ -934,24 +934,45 @@ class PULSEWAVEGUI:
         self.log_buffer = ""
         if lines and not lines[-1].endswith(("\n", "\r")):
             self.log_buffer = lines.pop()
+        
         visible = []
         for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("@@VLESS_RESULT@@"):
-                try: self.upsert_result(json.loads(stripped[len("@@VLESS_RESULT@@"):]))
-                except Exception: pass
-            elif stripped.startswith("@@VLESS_PROGRESS@@"):
+            # Ищем маркер прогресса в строке, даже если он приклеился к тексту
+            if "@@VLESS_PROGRESS@@" in line:
                 try:
-                    data = json.loads(stripped[len("@@VLESS_PROGRESS@@"):])
+                    parts = line.split("@@VLESS_PROGRESS@@", 1)
+                    progress_part = parts[1].strip()
+                    
+                    # Если до маркера был текст консоли (шкала, ETA), сохраняем в Журнал
+                    if parts[0].strip():
+                        visible.append(parts[0] + "\n")
+                        
+                    data = json.loads(progress_part)
                     self.metric_vars["checked"].set(str(data.get("completed", 0)))
                     self.metric_vars["active"].set(str(data.get("concurrency", 0)))
-                    total = max(int(data.get("total", 0)), 1); done = int(data.get("completed", 0))
-                    self.progress.stop(); self.progress.configure(mode="determinate", maximum=total, value=done)
-                    self.progress_text.set(f"Пачка: {done}/{total}  •  Рабочих: {data.get('working', 0)}  •  Конкурентность: {data.get('concurrency', 0)}")
-                except Exception: pass
+                    
+                    total = max(int(data.get("total", 0)), 1)
+                    done = int(data.get("completed", 0))
+                    
+                    # КРИТИЧЕСКИЙ МОМЕНТ: Выключаем бесконечный "бегающий" режим
+                    if self.progress["mode"] != "determinate":
+                        self.progress.stop()  # Останавливаем бесконечную анимацию .start()
+                        self.progress.configure(mode="determinate")
+                    
+                    # Устанавливаем точные значения из пачки
+                    self.progress.configure(maximum=total, value=done)
+                    
+                    self.progress_text.set(
+                        f"Пачка: {done}/{total}  •  Рабочих: {data.get('working', 0)}  •  "
+                        f"Конкурентность: {data.get('concurrency', 0)}"
+                    )
+                except Exception:
+                    pass
             else:
                 visible.append(line)
-        if visible: self.append("".join(visible))
+                
+        if visible: 
+            self.append("".join(visible))
 
     def poll_messages(self):
         try:
