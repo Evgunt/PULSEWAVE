@@ -1,16 +1,15 @@
-# 🌊 PULSEWAVE 4.0.3 — Private Network Manager
+# 🌊 PULSEWAVE 4.0.4 — Private Network Manager
 
 **PULSEWAVE** — настольное приложение для Windows: импорт и диагностика proxy-профилей, оценка доступности серверов и управление локальным TUN-подключением через отдельный процесс sing-box.
 
 > Проект является независимым программным инструментом. Он не предоставляет VPN-серверы, подписки или услуги связи. Пользователь самостоятельно выбирает конфигурации и отвечает за законность их получения, использования и распространения.
 
-### Современный менеджер VPN-подключений на базе Sing-box
+## Современный менеджер VPN-подключений на базе Sing-box
 
-[![Версия](https://img.shields.io/badge/версия-4.0.0-blue?style=for-the-badge)](https://github.com/Evgunt/PULSEWAVE/releases/latest)
+[![Версия](https://img.shields.io/badge/версия-4.0.4-blue?style=for-the-badge)](https://github.com/Evgunt/PULSEWAVE/releases/latest)
 [![Платформа](https://img.shields.io/badge/платформа-Windows-0078D6?style=for-the-badge&logo=windows)](https://github.com/USERNAME/REPOSITORY)
 [![Тип](https://img.shields.io/badge/тип-Портативная-success?style=for-the-badge)](https://github.com/Evgunt/PULSEWAVE/releases/latest)
 
----
 
 ## Возможности
 
@@ -37,8 +36,6 @@
 - Не засоряет систему лишними файлами.
 - Удобно переносить на USB-накопителе.
 
----
-
 ## ✨ Возможности
 
 - 🔎 Автоматический поиск VPN-серверов.
@@ -50,8 +47,6 @@
 - 🔒 Поддержка TUN-режима.
 - 📈 Статистика проверки серверов в реальном времени.
 - 🌙 Современный тёмный интерфейс.
-
----
 
 ## 🚀 Как начать пользоваться
 
@@ -65,15 +60,11 @@
 > [!WARNING]
 > Во избежание багов и вирусов используйте sing-box только из официального проекта: <https://github.com/SagerNet/sing-box/releases>
 
----
-
 ## 📦 Загрузки
 
 Все актуальные и предыдущие версии приложения доступны на странице релизов:
 
 ### [📥 Открыть все релизы PULSEWAVE](https://github.com/Evgunt/PULSEWAVE/releases)
-
----
 
 ## Требования для Source code
 
