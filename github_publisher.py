@@ -87,8 +87,12 @@ class GitHubPublisher:
     def test_connection(self):
         response = self._request("GET", self.repo_url)
         data = response.json()
-        if data.get("permissions") and not data["permissions"].get("push", False):
-            raise GitHubPublishError("У токена нет права записи в этот репозиторий.")
+        permissions = data.get("permissions") or {}
+        if permissions and not permissions.get("push", False):
+            raise GitHubPublishError("У токена нет права записи в этот репозиторий (нужно Contents: Read and write).")
+        # Confirm the configured target branch exists, not just that the repository is visible.
+        branch_url = f"{self.repo_url}/branches/{__import__('urllib.parse', fromlist=['quote']).quote(self.branch, safe='')}"
+        self._request("GET", branch_url)
         return data
 
     def upload_text(self, path: str, content: str, commit_message: str):

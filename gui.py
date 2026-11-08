@@ -1,5 +1,6 @@
-"""PULSEWAVE 4.0.0 — Personal VPN Suite."""
+"""PULSEWAVE 4.0.4 — Personal VPN Suite."""
 import csv
+import socket
 import ctypes
 import json
 import os
@@ -21,7 +22,7 @@ LOG_FILE = APP_DIR / "vlesschecker.log"
 SOURCES_FILE = APP_DIR / "sources.txt"
 UI_CONFIG = APP_DIR / "vlesschecker_ui.json"
 SINGBOX_EXE = APP_DIR / "singBox" / "sing-box.exe"
-APP_VERSION = "4.0.0"
+APP_VERSION = "4.0.4"
 BRAND = "PULSEWAVE"
 ACCENT = "#00DADA"
 BG = "#080D12"
@@ -133,6 +134,9 @@ class PULSEWAVEGUI:
         self.log_buffer = ""
         self.sort_column = "ping"
         self.sort_reverse = False
+        self.quick_check_running = False
+        self.quick_check_total = 0
+        self.quick_check_done = 0
         self.config = self.load_ui_config()
         self.tray_icon = None
         self.tray_thread = None
@@ -163,25 +167,35 @@ class PULSEWAVEGUI:
         style.configure("AppTitle.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 22, "bold"))
         style.configure("SubTitle.TLabel", background=BG, foreground=MUTED, font=("Segoe UI", 9))
         style.configure("Metric.TLabel", background=PANEL, foreground=ACCENT, font=("Segoe UI", 18, "bold"))
-        style.configure("TButton", background="#172630", foreground=TEXT, bordercolor="#304650", padding=(14, 9), relief="flat", font=("Segoe UI", 9, "bold"))
+        style.configure("TButton", background="#172630", foreground=TEXT, bordercolor="#304650",
+                        padding=(16, 10), relief="flat", font=("Segoe UI", 9, "bold"), focusthickness=1,
+                        focuscolor=ACCENT)
         style.map("TButton", background=[("active", "#23404B"), ("disabled", "#17212A")], foreground=[("disabled", "#60717A")])
         style.configure("Accent.TButton", background="#00C8C8", foreground="#041014", font=("Segoe UI", 10, "bold"), padding=(18, 10), relief="flat")
         style.map("Accent.TButton", background=[("active", "#20E5E5")], foreground=[("active", "#061014")])
-        style.configure("TEntry", fieldbackground="#111D27", foreground=TEXT, bordercolor="#2C4653", padding=(8, 7), relief="flat")
-        style.configure("TCheckbutton", background=BG, foreground=TEXT)
+        style.configure("TEntry", fieldbackground="#111D27", foreground=TEXT, bordercolor="#2C4653",
+                        lightcolor="#2C4653", darkcolor="#2C4653", padding=(12, 10), relief="flat",
+                        insertcolor=ACCENT, font=("Segoe UI", 10))
+        style.map("TEntry", bordercolor=[("focus", ACCENT), ("!focus", "#2C4653")],
+                  lightcolor=[("focus", ACCENT), ("!focus", "#2C4653")],
+                  darkcolor=[("focus", ACCENT), ("!focus", "#2C4653")],
+                  fieldbackground=[("disabled", "#0D151D")])
+        style.configure("TCombobox", fieldbackground="#111B24", background="#1A2933",
+                        foreground=TEXT, arrowcolor=ACCENT, bordercolor="#304650",
+                        padding=(10, 9), font=("Segoe UI", 10), relief="flat")
+        style.map("TCombobox", fieldbackground=[("readonly", "#111B24"), ("focus", "#142630")],
+                  foreground=[("readonly", TEXT)], bordercolor=[("focus", ACCENT)])
+        style.configure("TCheckbutton", background=BG, foreground=TEXT, padding=(3, 5), font=("Segoe UI", 9))
         style.map("TCheckbutton", background=[("active", BG)], foreground=[("active", ACCENT)])
         style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(0, 5, 0, 0))
         style.configure("TNotebook.Tab", background="#111D27", foreground=MUTED, padding=(20, 11), borderwidth=0, font=("Segoe UI", 9, "bold"))
         style.map("TNotebook.Tab", background=[("selected", "#18313A"), ("active", "#1A2933")], foreground=[("selected", ACCENT), ("active", TEXT)])
-        style.configure("Treeview", rowheight=36, font=("Segoe UI", 9), background="#0B131B", fieldbackground="#0B131B", foreground=TEXT, bordercolor="#263943", relief="flat")
+        style.configure("Treeview", rowheight=40, font=("Segoe UI", 9), background="#0B131B", fieldbackground="#0B131B", foreground=TEXT, bordercolor="#263943", relief="flat")
         style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), background="#14232D", foreground=ACCENT, relief="flat", padding=(10, 11))
         style.map("Treeview", background=[("selected", "#17434A")], foreground=[("selected", "#FFFFFF")])
         style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor="#1A2933", bordercolor="#1A2933")
         style.configure("TScrollbar", background="#17232D", troughcolor=BG, bordercolor=BG, arrowcolor=MUTED, relief="flat")
         style.map("TScrollbar", background=[("active", "#29404A")])
-        style.configure("TCombobox", fieldbackground="#111B24", background="#1A2933", foreground=TEXT, arrowcolor=ACCENT, bordercolor="#304650")
-        style.map("TCombobox", fieldbackground=[("readonly", "#111B24")], foreground=[("readonly", TEXT)])
-
         install_input_shortcuts(root)
         shell = ttk.Frame(root, padding=20, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
@@ -195,61 +209,38 @@ class PULSEWAVEGUI:
         brand_text = ttk.Frame(brand)
         brand_text.pack(side="left")
         ttk.Label(brand_text, text="PULSEWAVE", style="AppTitle.TLabel").pack(anchor="w")
-        ttk.Label(brand_text, text="PRIVATE NETWORK MANAGER  •  YOUR CONNECTION. YOUR PULSE.", style="SubTitle.TLabel").pack(anchor="w")
+        ttk.Label(brand_text, text="МЕНЕДЖЕР СЕТЕВЫХ ПОДКЛЮЧЕНИЙ  •  ТВОЯ СЕТЬ. ТВОЙ PULSE.", style="SubTitle.TLabel").pack(anchor="w")
         
         self.status = tk.StringVar(value="Готов к работе")
         ttk.Label(header, textvariable=self.status, font=("Segoe UI", 10, "bold")).pack(side="right", padx=6)
 
-        metrics = ttk.Frame(shell)
-        metrics.pack(fill="x", pady=(0, 12))
+        # Счётчики оставлены для внутренней логики, но карточки статистики удалены из интерфейса.
         self.metric_vars = {k: tk.StringVar(value="0") for k in ("checked", "working", "best", "active")}
-        for col, (key, label) in enumerate((("checked", "В ПАЧКЕ ПРОВЕРЕНО"), ("working", "РАБОЧИХ В ТАБЛИЦЕ"), ("best", "ЛУЧШИЙ PING"), ("active", "ЛИМИТ ПОТОКОВ"))):
-            card = ttk.LabelFrame(metrics, text=label, padding=(12, 7))
-            card.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 8, 0))
-            ttk.Label(card, textvariable=self.metric_vars[key], style="Metric.TLabel").pack(anchor="w")
-            metrics.columnconfigure(col, weight=1)
 
-        settings = ttk.LabelFrame(shell, text="  ПАРАМЕТРЫ ПРОВЕРКИ  ", padding=(16, 13))
-        settings.pack(fill="x", pady=(0, 10))
         self.concurrency_var = tk.StringVar(value=str(self.config.get("concurrency", 100)))
         self.target_var = tk.StringVar(value=str(self.config.get("target", 60)))
         self.batch_var = tk.StringVar(value=str(self.config.get("batch", 300)))
         self.git_var = tk.BooleanVar(value=bool(self.config.get("git_push", False)))
         self.autostart_var = tk.BooleanVar(value=self.is_autostart_enabled())
         self.tray_on_close_var = tk.BooleanVar(value=bool(self.config.get("tray_on_close", True)))
-        fields = (("Параллельные проверки", self.concurrency_var, 0), ("Найти рабочих серверов", self.target_var, 1), ("Размер пачки", self.batch_var, 2))
-        for label, var, col in fields:
-            ttk.Label(settings, text=label).grid(row=0, column=col, sticky="w", padx=(0, 6))
-            ttk.Entry(settings, textvariable=var, width=12).grid(row=1, column=col, sticky="w", padx=(0, 20), pady=(4, 0))
-        ttk.Checkbutton(settings, text="Публиковать fast_vless.txt в GitHub после проверки", variable=self.git_var, command=self.save_preferences).grid(row=1, column=3, sticky="w", padx=8)
-        ttk.Button(settings, text="Настроить GitHub…", command=self.open_github_settings).grid(row=2, column=3, sticky="w", padx=8, pady=(7, 0))
-        ttk.Checkbutton(settings, text="Запускать вместе с Windows", variable=self.autostart_var, command=self.toggle_autostart).grid(row=2, column=0, columnspan=2, sticky="w", pady=(9, 0))
-        ttk.Checkbutton(settings, text="При закрытии прятать в системный трей", variable=self.tray_on_close_var, command=self.save_preferences).grid(row=2, column=2, sticky="w", padx=8, pady=(9, 0))
-        settings.columnconfigure(3, weight=1)
-
-        schedule = ttk.LabelFrame(shell, text="  АВТОМАТИЧЕСКАЯ ПРОВЕРКА  ", padding=(16, 12))
-        schedule.pack(fill="x", pady=(0, 10))
         self.schedule_enabled_var = tk.BooleanVar(value=self.scheduler_enabled)
-        ttk.Checkbutton(schedule, text="Включить расписание", variable=self.schedule_enabled_var, command=self.toggle_scheduler).pack(side="left")
-        ttk.Label(schedule, text="Интервал:").pack(side="left", padx=(18, 5))
-        self.schedule_combo = ttk.Combobox(schedule, textvariable=self.schedule_interval_var, values=("15", "30", "60", "120", "240"), width=6, state="readonly")
-        self.schedule_combo.pack(side="left")
-        self.schedule_combo.bind("<<ComboboxSelected>>", self.schedule_interval_changed)
-        ttk.Label(schedule, text="минут").pack(side="left", padx=(5, 14))
-        ttk.Label(schedule, textvariable=self.schedule_status_var, style="SubTitle.TLabel").pack(side="left", padx=(0, 12))
-        ttk.Label(schedule, textvariable=self.github_status_var, style="SubTitle.TLabel").pack(side="right")
+        self.schedule_interval_var = tk.StringVar(value=str(self.config.get("schedule_interval", 60)))
 
         actions = ttk.Frame(shell)
         actions.pack(fill="x", pady=(0, 10))
         self.start_btn = ttk.Button(actions, text="▶  Запустить проверку", command=self.start, style="Accent.TButton")
-        self.start_btn.pack(side="left")
+        self.start_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=3)
         self.stop_btn = ttk.Button(actions, text="■  Остановить", command=self.stop, state="disabled")
-        self.stop_btn.pack(side="left", padx=7)
-        ttk.Button(actions, text="Источники…", command=self.edit_sources).pack(side="left", padx=7)
-        ttk.Button(actions, text="Экспорт CSV…", command=self.export_csv).pack(side="left", padx=7)
-        ttk.Button(actions, text="Открыть TXT", command=self.open_results).pack(side="left", padx=7)
-        ttk.Button(actions, text="О программе", command=self.about).pack(side="left", padx=7)
-        ttk.Button(actions, text="Очистить журнал", command=self.clear_log).pack(side="right")
+        self.stop_btn.grid(row=0, column=1, sticky="ew", padx=6, pady=3)
+        ttk.Button(actions, text="Источники…", command=self.edit_sources).grid(row=0, column=2, sticky="ew", padx=6, pady=3)
+        ttk.Button(actions, text="Экспорт CSV…", command=self.export_csv).grid(row=0, column=3, sticky="ew", padx=6, pady=3)
+        ttk.Button(actions, text="Открыть TXT", command=self.open_results).grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=3)
+        ttk.Button(actions, text="Сохранить результат", command=self.save_results_as).grid(row=1, column=1, sticky="ew", padx=6, pady=3)
+        ttk.Button(actions, text="⚙ Настройки", command=self.show_settings).grid(row=1, column=2, sticky="ew", padx=6, pady=3)
+        ttk.Button(actions, text="О программе", command=self.about).grid(row=1, column=3, sticky="ew", padx=6, pady=3)
+        ttk.Button(actions, text="Очистить журнал", command=self.clear_log).grid(row=1, column=4, sticky="e", padx=(6, 0), pady=3)
+        for action_col in range(5):
+            actions.columnconfigure(action_col, weight=1 if action_col < 4 else 0)
 
         tunnel_bar = ttk.LabelFrame(shell, text="  VPN-ТУННЕЛЬ  ", padding=(16, 12))
         tunnel_bar.pack(fill="x", pady=(0, 10))
@@ -269,25 +260,114 @@ class PULSEWAVEGUI:
 
         notebook = ttk.Notebook(shell)
         notebook.pack(fill="both", expand=True)
+        self.main_notebook = notebook
         results_tab = ttk.Frame(notebook, padding=8)
         log_tab = ttk.Frame(notebook, padding=8)
+        settings_tab = ttk.Frame(notebook, padding=0)
         notebook.add(results_tab, text="  Рабочие серверы  ")
         notebook.add(log_tab, text="  Журнал  ")
+        notebook.add(settings_tab, text="  Настройки  ")
+        self.settings_tab = settings_tab
 
-        columns = ("rank", "name", "protocol", "ip", "ping", "link")
+        settings_canvas = tk.Canvas(settings_tab, bg=BG, highlightthickness=0, borderwidth=0)
+        settings_scroll = ttk.Scrollbar(settings_tab, orient="vertical", command=settings_canvas.yview)
+        settings_canvas.configure(yscrollcommand=settings_scroll.set)
+        settings_scroll.pack(side="right", fill="y")
+        settings_canvas.pack(side="left", fill="both", expand=True)
+        settings_content = ttk.Frame(settings_canvas, padding=14)
+        settings_window = settings_canvas.create_window((0, 0), window=settings_content, anchor="nw")
+        def _settings_content_changed(_event=None):
+            settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
+        def _settings_canvas_resized(event):
+            settings_canvas.itemconfigure(settings_window, width=event.width)
+        settings_content.bind("<Configure>", _settings_content_changed)
+        settings_canvas.bind("<Configure>", _settings_canvas_resized)
+        settings_canvas.bind_all("<MouseWheel>", lambda event: settings_canvas.yview_scroll(int(-event.delta / 120), "units") if self.main_notebook.select() == str(settings_tab) else None)
+
+        self.settings_home = ttk.Frame(settings_content)
+        self.settings_home.pack(fill="both", expand=True)
+        ttk.Label(self.settings_home, text="НАСТРОЙКИ PULSEWAVE", style="AppTitle.TLabel").pack(anchor="w", pady=(0, 14))
+        check_frame = ttk.LabelFrame(self.settings_home, text="  ПАРАМЕТРЫ ПРОВЕРКИ  ", padding=14)
+        check_frame.pack(fill="x", pady=(0, 12))
+        for col, (label, var) in enumerate((
+            ("Параллельные проверки", self.concurrency_var),
+            ("Найти рабочих серверов", self.target_var),
+            ("Размер пачки", self.batch_var),
+        )):
+            ttk.Label(check_frame, text=label).grid(row=0, column=col, sticky="w", padx=(0, 12))
+            ttk.Entry(check_frame, textvariable=var, width=14).grid(row=1, column=col, sticky="w", padx=(0, 18), pady=(5, 8))
+        ttk.Checkbutton(check_frame, text="Публиковать fast_vless.txt в GitHub после проверки", variable=self.git_var, command=self.save_preferences).grid(row=2, column=0, columnspan=3, sticky="w", pady=5)
+        ttk.Checkbutton(check_frame, text="Запускать вместе с Windows", variable=self.autostart_var, command=self.toggle_autostart).grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Checkbutton(check_frame, text="При закрытии прятать в системный трей", variable=self.tray_on_close_var, command=self.save_preferences).grid(row=3, column=1, columnspan=2, sticky="w", pady=5)
+
+        schedule_frame = ttk.LabelFrame(self.settings_home, text="  АВТОМАТИЧЕСКАЯ ПРОВЕРКА  ", padding=14)
+        schedule_frame.pack(fill="x", pady=(0, 12))
+        ttk.Checkbutton(schedule_frame, text="Включить расписание", variable=self.schedule_enabled_var, command=self.toggle_scheduler).pack(side="left")
+        ttk.Label(schedule_frame, text="Интервал:").pack(side="left", padx=(18, 6))
+        self.schedule_combo = ttk.Combobox(schedule_frame, textvariable=self.schedule_interval_var, values=("15", "30", "60", "120", "240"), width=7, state="readonly")
+        self.schedule_combo.pack(side="left")
+        self.schedule_combo.bind("<<ComboboxSelected>>", self.schedule_interval_changed)
+        ttk.Label(schedule_frame, text="минут").pack(side="left", padx=6)
+        ttk.Label(schedule_frame, textvariable=self.schedule_status_var, style="SubTitle.TLabel").pack(side="left", padx=12)
+
+        settings_actions = ttk.Frame(self.settings_home)
+        settings_actions.pack(fill="x", pady=8)
+        ttk.Button(settings_actions, text="Настроить GitHub…", command=self.open_github_settings, style="Accent.TButton").pack(side="left")
+        ttk.Button(settings_actions, text="Сохранить настройки", command=self.save_preferences).pack(side="left", padx=8)
+        ttk.Label(settings_actions, textvariable=self.github_status_var, style="SubTitle.TLabel").pack(side="right")
+
+        self.github_page = ttk.Frame(settings_content)
+        self.github_page_title = ttk.Label(self.github_page, text="ПУБЛИКАЦИЯ В GITHUB", style="AppTitle.TLabel")
+        self.github_page_title.pack(anchor="w", pady=(0, 14))
+        self.github_form = ttk.LabelFrame(self.github_page, text="  ПАРАМЕТРЫ GITHUB  ", padding=14)
+        self.github_form.pack(fill="x")
+        self.github_owner_var_page = tk.StringVar(value=self.config.get("github_owner", ""))
+        self.github_repo_var_page = tk.StringVar(value=self.config.get("github_repo", ""))
+        self.github_branch_var_page = tk.StringVar(value=self.config.get("github_branch", "main"))
+        self.github_token_var_page = tk.StringVar(value="")
+        for row, (label, var, secret) in enumerate((
+            ("Владелец / пользователь GitHub", self.github_owner_var_page, False),
+            ("Название репозитория", self.github_repo_var_page, False),
+            ("Ветка", self.github_branch_var_page, False),
+            ("Personal Access Token", self.github_token_var_page, True),
+        )):
+            ttk.Label(self.github_form, text=label).grid(row=row*2, column=0, sticky="w", pady=(4, 0))
+            ttk.Entry(self.github_form, textvariable=var, width=54, show="•" if secret else "").grid(row=row*2+1, column=0, sticky="ew", pady=(3, 7))
+        ttk.Label(self.github_form, text="Токен хранится в защищённом хранилище учётных данных Windows.", style="SubTitle.TLabel").grid(row=8, column=0, sticky="w", pady=(2, 10))
+        self.github_page_status = tk.StringVar(value="Укажите репозиторий и токен GitHub.")
+        ttk.Label(self.github_form, textvariable=self.github_page_status, style="SubTitle.TLabel", wraplength=700).grid(row=9, column=0, sticky="w", pady=(0, 10))
+        github_buttons = ttk.Frame(self.github_form)
+        github_buttons.grid(row=10, column=0, sticky="ew", pady=(4, 2))
+        for button_col in range(4):
+            github_buttons.columnconfigure(button_col, weight=1)
+        ttk.Button(github_buttons, text="← Назад", command=self.show_settings).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        ttk.Button(github_buttons, text="Проверить доступ", command=self.check_github_access).grid(row=0, column=1, sticky="ew", padx=5)
+        ttk.Button(github_buttons, text="Сохранить GitHub", command=self.save_github_settings, style="Accent.TButton").grid(row=0, column=2, sticky="ew", padx=5)
+        ttk.Button(github_buttons, text="Опубликовать TXT", command=lambda: self.publish_fast_vless(manual=True)).grid(row=0, column=3, sticky="ew", padx=(5, 0))
+        self.github_form.columnconfigure(0, weight=1)
+
+        results_toolbar = ttk.Frame(results_tab)
+        results_toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ttk.Button(results_toolbar, text="↻  Обновить список", command=self.reload_results_from_file).pack(side="left", padx=(0, 6))
+        self.quick_ping_btn = ttk.Button(results_toolbar, text="⚡ Быстрый пинг + доступность", command=self.start_quick_connectivity_check, style="Accent.TButton")
+        self.quick_ping_btn.pack(side="left", padx=6)
+        ttk.Button(results_toolbar, text="↓ Сортировать по пингу", command=self.sort_by_ping).pack(side="left", padx=6)
+        self.quick_ping_status = tk.StringVar(value="Проверка TCP-доступности без изменения проверки VLESS")
+        ttk.Label(results_toolbar, textvariable=self.quick_ping_status, style="SubTitle.TLabel").pack(side="left", padx=10)
+        columns = ("rank", "name", "protocol", "ip", "ping", "availability", "link")
         self.table = ttk.Treeview(results_tab, columns=columns, show="headings", selectmode="extended")
-        headings = {"rank":"#", "name":"Название", "protocol":"Протокол", "ip":"Внешний IP", "ping":"Задержка", "link":"Ссылка"}
-        widths = {"rank":48, "name":220, "protocol":90, "ip":135, "ping":95, "link":430}
+        headings = {"rank":"#", "name":"Название", "protocol":"Протокол", "ip":"Внешний IP", "ping":"Пинг", "availability":"TCP-доступность", "link":"Ссылка"}
+        widths = {"rank":42, "name":190, "protocol":82, "ip":125, "ping":85, "availability":125, "link":380}
         for key in columns:
             self.table.heading(key, text=headings[key], command=lambda c=key: self.sort_table(c))
             self.table.column(key, width=widths[key], minwidth=45, anchor="w")
         yscroll = ttk.Scrollbar(results_tab, orient="vertical", command=self.table.yview)
         xscroll = ttk.Scrollbar(results_tab, orient="horizontal", command=self.table.xview)
         self.table.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
-        self.table.grid(row=0, column=0, sticky="nsew")
-        yscroll.grid(row=0, column=1, sticky="ns")
-        xscroll.grid(row=1, column=0, sticky="ew")
-        results_tab.rowconfigure(0, weight=1); results_tab.columnconfigure(0, weight=1)
+        self.table.grid(row=1, column=0, sticky="nsew")
+        yscroll.grid(row=1, column=1, sticky="ns")
+        xscroll.grid(row=2, column=0, sticky="ew")
+        results_tab.rowconfigure(1, weight=1); results_tab.columnconfigure(0, weight=1)
         self.table.tag_configure("fast", foreground="#16834a")
         self.table.tag_configure("slow", foreground="#a36a16")
 
@@ -342,12 +422,28 @@ class PULSEWAVEGUI:
             return {}
 
     def save_ui_config(self):
-        data = {"concurrency": int(self.concurrency_var.get()), "target": int(self.target_var.get()), "batch": int(self.batch_var.get()), "git_push": self.git_var.get(), "tray_on_close": self.tray_on_close_var.get(), "schedule_enabled": self.schedule_enabled_var.get(), "schedule_interval": int(self.schedule_interval_var.get()), "github_owner": getattr(self, "github_owner_var", tk.StringVar(value=self.config.get("github_owner", ""))).get(), "github_repo": getattr(self, "github_repo_var", tk.StringVar(value=self.config.get("github_repo", ""))).get(), "github_branch": getattr(self, "github_branch_var", tk.StringVar(value=self.config.get("github_branch", "main"))).get()}
-        UI_CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        data = {
+            "concurrency": int(self.concurrency_var.get()),
+            "target": int(self.target_var.get()),
+            "batch": int(self.batch_var.get()),
+            "git_push": bool(self.git_var.get()),
+            "tray_on_close": bool(self.tray_on_close_var.get()),
+            "schedule_enabled": bool(self.schedule_enabled_var.get()),
+            "schedule_interval": int(self.schedule_interval_var.get()),
+            "github_owner": self.github_owner_var_page.get().strip() if hasattr(self, "github_owner_var_page") else self.config.get("github_owner", ""),
+            "github_repo": self.github_repo_var_page.get().strip() if hasattr(self, "github_repo_var_page") else self.config.get("github_repo", ""),
+            "github_branch": (self.github_branch_var_page.get().strip() or "main") if hasattr(self, "github_branch_var_page") else self.config.get("github_branch", "main"),
+            "autostart": bool(self.autostart_var.get()) if hasattr(self, "autostart_var") else self.config.get("autostart", False),
+        }
+        temporary = UI_CONFIG.with_suffix(UI_CONFIG.suffix + ".tmp")
+        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary, UI_CONFIG)
+        self.config.update(data)
 
     def save_preferences(self):
         try:
             self.save_ui_config()
+            self.append("[GUI] Настройки сохранены.\\n")
         except Exception as exc:
             messagebox.showwarning("Настройки", f"Не удалось сохранить настройки: {exc}")
 
@@ -476,7 +572,7 @@ class PULSEWAVEGUI:
             ping = int(result.get("ping", 0))
         except (ValueError, TypeError):
             ping = 0
-        row = {"name": result.get("name") or "Без имени", "protocol": result.get("protocol") or link.split(":", 1)[0], "ip": result.get("external_ip", ""), "ping": ping, "link": link}
+        row = {"name": result.get("name") or "Без имени", "protocol": result.get("protocol") or link.split(":", 1)[0], "ip": result.get("external_ip", ""), "ping": ping, "availability": result.get("availability", "Не проверено"), "link": link}
         self.rows_by_link[link] = row
         self.refresh_table()
 
@@ -488,8 +584,8 @@ class PULSEWAVEGUI:
                    "link": lambda r: r["link"]}
         rows = sorted(self.rows_by_link.values(), key=sorters.get(self.sort_column, sorters["ping"]), reverse=self.sort_reverse)
         for rank, row in enumerate(rows, 1):
-            tag = "fast" if row["ping"] and row["ping"] < 250 else "slow"
-            self.table.insert("", "end", values=(rank, row["name"], row["protocol"], row["ip"], f"{row['ping']} мс" if row["ping"] else "—", row["link"]), tags=(tag,))
+            tag = "fast" if row.get("availability") == "Доступен" or (row["ping"] and row["ping"] < 250) else "slow"
+            self.table.insert("", "end", values=(rank, row["name"], row["protocol"], row["ip"], f"{row['ping']} мс" if row["ping"] else "—", row.get("availability", "Не проверено"), row["link"]), tags=(tag,))
         self.metric_vars["working"].set(str(len(rows)))
         best = min((r["ping"] for r in rows if r["ping"] > 0), default=0)
         self.metric_vars["best"].set(f"{best} мс" if best else "—")
@@ -503,6 +599,104 @@ class PULSEWAVEGUI:
                         self.upsert_result({"link": link, "name": "Сохранённая конфигурация", "protocol": link.split(":",1)[0], "ping": 0})
             except OSError:
                 pass
+
+    @staticmethod
+    def _tcp_probe(link, timeout=2.0):
+        """Measure direct TCP handshake latency; does not parse or validate VLESS."""
+        try:
+            parsed = urlsplit(link.strip())
+            host = parsed.hostname
+            port = parsed.port
+            if not host or not port:
+                return 0, "Некорректный адрес"
+            started = time.perf_counter()
+            with socket.create_connection((host, port), timeout=timeout):
+                elapsed = int((time.perf_counter() - started) * 1000)
+            return max(1, elapsed), "Доступен"
+        except (OSError, ValueError, socket.timeout):
+            return 0, "Недоступен"
+
+    def start_quick_connectivity_check(self):
+        if self.quick_check_running:
+            return
+        rows = list(self.rows_by_link.values())
+        if not rows:
+            messagebox.showinfo("Быстрая проверка", "Список рабочих серверов пуст. Сначала обновите список или выполните основную проверку.")
+            return
+        self.quick_check_running = True
+        self.quick_check_total = len(rows)
+        self.quick_check_done = 0
+        self.quick_ping_btn.configure(state="disabled")
+        self.quick_ping_status.set(f"Проверка 0/{len(rows)}…")
+        self.append(f"\n[Быстрая проверка] Проверяю TCP-доступность {len(rows)} серверов…\n")
+
+        def worker():
+            # Bounded concurrency keeps the UI responsive and avoids excessive socket load.
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=min(32, max(1, len(rows)))) as pool:
+                futures = {pool.submit(self._tcp_probe, row["link"]): row["link"] for row in rows}
+                for future in as_completed(futures):
+                    link = futures[future]
+                    try:
+                        ping, availability = future.result()
+                    except Exception:
+                        ping, availability = 0, "Недоступен"
+                    self.root.after(0, lambda l=link, p=ping, a=availability: self._apply_quick_probe(l, p, a))
+            self.root.after(0, self._finish_quick_connectivity_check)
+
+        threading.Thread(target=worker, daemon=True, name="PULSEWAVEQuickPing").start()
+
+    def _apply_quick_probe(self, link, ping, availability):
+        row = self.rows_by_link.get(link)
+        if row is not None:
+            row["ping"] = ping
+            row["availability"] = availability
+        self.quick_check_done += 1
+        self.quick_ping_status.set(f"Проверено {self.quick_check_done}/{self.quick_check_total}")
+        self.refresh_table()
+
+    def _finish_quick_connectivity_check(self):
+        self.quick_check_running = False
+        self.quick_ping_btn.configure(state="normal")
+        available = sum(1 for row in self.rows_by_link.values() if row.get("availability") == "Доступен")
+        self.sort_column, self.sort_reverse = "ping", False
+        self.refresh_table()
+        self.quick_ping_status.set(f"Готово: доступно {available}/{self.quick_check_total}. Нажмите заголовок «Пинг» для сортировки.")
+        self.append(f"[Быстрая проверка] Завершено. TCP-доступно: {available}/{self.quick_check_total}. Список отсортирован по пингу.\n")
+
+    def sort_by_ping(self):
+        self.sort_column, self.sort_reverse = "ping", False
+        self.refresh_table()
+        self.quick_ping_status.set("Сортировка: минимальный пинг сверху")
+
+    def reload_results_from_file(self):
+        """Reload the saved working-server list; this does not run or alter VLESS checks."""
+        if not OUTPUT_FILE.exists():
+            self.rows_by_link.clear()
+            self.refresh_table()
+            messagebox.showinfo("Обновление списка", "Файл fast_vless.txt ещё не создан.")
+            return
+        try:
+            links = []
+            for raw_line in OUTPUT_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+                link = raw_line.strip()
+                if link and "://" in link:
+                    links.append(link)
+            self.rows_by_link.clear()
+            for link in dict.fromkeys(links):
+                self.rows_by_link[link] = {
+                    "name": "Сохранённая конфигурация",
+                    "protocol": link.split(":", 1)[0],
+                    "ip": "",
+                    "ping": 0,
+                    "availability": "Не проверено",
+                    "link": link,
+                }
+            self.refresh_table()
+            self.append(f"[GUI] Список обновлён из fast_vless.txt: {len(self.rows_by_link)} записей.\n")
+            self.progress_text.set(f"Список рабочих серверов обновлён: {len(self.rows_by_link)}")
+        except Exception as exc:
+            messagebox.showerror("Обновление списка", f"Не удалось перечитать fast_vless.txt:\n{exc}")
 
     def validate_settings(self):
         try:
@@ -542,14 +736,22 @@ class PULSEWAVEGUI:
         else: command = [sys.executable, str(Path(__file__).resolve()), "--worker"]
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         try:
-            self.proc = subprocess.Popen(command, cwd=str(APP_DIR), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, creationflags=creationflags)
+            worker_log = LOG_FILE.open("a", encoding="utf-8", buffering=1)
+            self.proc = subprocess.Popen(command, cwd=str(APP_DIR), env=env, stdout=worker_log,
+                                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                         creationflags=creationflags)
+            worker_log.close()
         except Exception as exc:
+            try:
+                worker_log.close()
+            except Exception:
+                pass
             messagebox.showerror("Ошибка запуска", str(exc)); return
         self.status.set("Проверка выполняется…")
         self.start_btn.configure(state="disabled"); self.stop_btn.configure(state="normal")
         self.progress.configure(mode="indeterminate"); self.progress.start(12)
         self.progress_text.set("Сбор источников и проверка конфигураций…")
-        self.append("\n=== PULSEWAVE 4.0.0: запуск проверки ===\n")
+        self.append("\n=== PULSEWAVE 4.0.3: запуск проверки ===\n")
         self.reader_thread = threading.Thread(target=self.read_output, args=(self.proc,), daemon=True)
         self.reader_thread.start()
 
@@ -566,69 +768,80 @@ class PULSEWAVEGUI:
             return False
         return True
 
-    def open_github_settings(self):
-        cfg = self.load_ui_config()
-        win = tk.Toplevel(self.root)
-        win.title("Публикация в GitHub")
-        win.configure(bg=BG)
-        win.resizable(False, False)
-        frame = ttk.Frame(win, padding=16)
-        frame.pack(fill="both", expand=True)
-        owner_var = tk.StringVar(value=cfg.get("github_owner", ""))
-        repo_var = tk.StringVar(value=cfg.get("github_repo", ""))
-        branch_var = tk.StringVar(value=cfg.get("github_branch", "main"))
-        token_var = tk.StringVar(value="")
-        ttk.Label(frame, text="Владелец / пользователь GitHub").grid(row=0, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=owner_var, width=48).grid(row=1, column=0, sticky="ew", pady=(3, 10))
-        ttk.Label(frame, text="Название репозитория").grid(row=2, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=repo_var, width=48).grid(row=3, column=0, sticky="ew", pady=(3, 10))
-        ttk.Label(frame, text="Ветка").grid(row=4, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=branch_var, width=48).grid(row=5, column=0, sticky="ew", pady=(3, 10))
-        ttk.Label(frame, text="Fine-grained Personal Access Token").grid(row=6, column=0, sticky="w")
-        token_entry = ttk.Entry(frame, textvariable=token_var, width=48, show="•")
-        token_entry.grid(row=7, column=0, sticky="ew", pady=(3, 4))
-        ttk.Label(frame, text="Нужен доступ Contents: Read and write только к выбранному репозиторию.", style="SubTitle.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 12))
-        status_var = tk.StringVar(value="Токен хранится в хранилище учётных данных Windows.")
-        ttk.Label(frame, textvariable=status_var, style="SubTitle.TLabel", wraplength=400).grid(row=9, column=0, sticky="w", pady=(0, 10))
-        def save_and_test():
-            owner, repo, branch = owner_var.get().strip(), repo_var.get().strip(), branch_var.get().strip() or "main"
-            token = token_var.get().strip() or load_github_token()
-            if not owner or not repo or not token:
-                messagebox.showwarning("Не хватает данных", "Укажи владельца, репозиторий и токен.", parent=win)
-                return
-            try:
-                publisher = GitHubPublisher(owner, repo, branch, token)
-                publisher.test_connection()
-                save_github_token(token)
-                self.github_owner_var = owner_var
-                self.github_repo_var = repo_var
-                self.github_branch_var = branch_var
-                self.config.update({"github_owner": owner, "github_repo": repo, "github_branch": branch})
-                self.save_ui_config()
-                self.github_status_var.set(f"GitHub: {owner}/{repo}")
-                status_var.set("Подключение успешно. Можно публиковать fast_vless.txt.")
-                token_var.set("")
-                messagebox.showinfo("GitHub подключён", f"Доступ к {owner}/{repo} подтверждён.", parent=win)
-            except Exception as exc:
-                status_var.set(f"Ошибка: {exc}")
-                messagebox.showerror("Не удалось подключиться", str(exc), parent=win)
-        buttons = ttk.Frame(frame)
-        buttons.grid(row=10, column=0, sticky="ew")
-        ttk.Button(buttons, text="Проверить и сохранить", command=save_and_test).pack(side="left")
-        ttk.Button(buttons, text="Закрыть", command=win.destroy).pack(side="right")
-        frame.columnconfigure(0, weight=1)
+    def show_settings(self):
+        self.main_notebook.select(self.settings_tab)
+        self.settings_home.pack(fill="both", expand=True)
+        self.github_page.pack_forget()
 
-    def publish_fast_vless(self):
+    def open_github_settings(self):
+        self.main_notebook.select(self.settings_tab)
+        self.settings_home.pack_forget()
+        self.github_page.pack(fill="both", expand=True)
+        self.github_owner_var_page.set(self.config.get("github_owner", ""))
+        self.github_repo_var_page.set(self.config.get("github_repo", ""))
+        self.github_branch_var_page.set(self.config.get("github_branch", "main"))
+        self.github_token_var_page.set("")
+
+    def _github_form_values(self):
+        owner = self.github_owner_var_page.get().strip()
+        repo = self.github_repo_var_page.get().strip()
+        branch = self.github_branch_var_page.get().strip() or "main"
+        token = self.github_token_var_page.get().strip() or load_github_token()
+        if not owner or not repo or not branch or not token:
+            raise GitHubPublishError("Заполните владельца, репозиторий, ветку и Personal Access Token.")
+        return owner, repo, branch, token
+
+    def check_github_access(self):
+        try:
+            owner, repo, branch, token = self._github_form_values()
+            publisher = GitHubPublisher(owner, repo, branch, token)
+            info = publisher.test_connection()
+            self.github_page_status.set(
+                f"Доступ подтверждён: {info.get('full_name', owner + '/' + repo)} · ветка {branch} доступна."
+            )
+            return True
+        except Exception as exc:
+            self.github_page_status.set(f"Проверка не пройдена: {exc}")
+            messagebox.showerror("Проверка GitHub", str(exc), parent=self.root)
+            return False
+
+    def save_github_settings(self):
+        try:
+            owner, repo, branch, token = self._github_form_values()
+            publisher = GitHubPublisher(owner, repo, branch, token)
+            publisher.test_connection()
+            # Save credential first; never write the token into the JSON settings file.
+            save_github_token(token)
+            self.config.update({"github_owner": owner, "github_repo": repo, "github_branch": branch})
+            self.save_ui_config()
+            self.github_token_var_page.set("")
+            self.github_status_var.set(f"GitHub: {owner}/{repo} · {branch}")
+            self.github_page_status.set("Настройки сохранены. Репозиторий и ветка доступны.")
+            messagebox.showinfo("GitHub сохранён", f"Доступ к {owner}/{repo} (ветка {branch}) подтверждён.", parent=self.root)
+        except Exception as exc:
+            self.github_page_status.set(f"Ошибка сохранения: {exc}")
+            messagebox.showerror("Не удалось сохранить GitHub", str(exc), parent=self.root)
+
+    def publish_fast_vless(self, manual=False):
         cfg = self.load_ui_config()
         token = load_github_token()
         owner, repo = cfg.get("github_owner", ""), cfg.get("github_repo", "")
         branch = cfg.get("github_branch", "main")
+        if not owner or not repo or not token:
+            messagebox.showwarning("GitHub не настроен", "Сначала сохраните настройки GitHub и проверьте доступ.")
+            return
         if not OUTPUT_FILE.exists():
             self.append("[GitHub] fast_vless.txt не найден — публикация пропущена.\n")
             return
         content = OUTPUT_FILE.read_text(encoding="utf-8", errors="replace")
         if not content.strip():
             self.append("[GitHub] Файл результатов пуст — публикация пропущена.\n")
+            return
+        if manual and not messagebox.askyesno(
+            "Публикация в GitHub",
+            "fast_vless.txt может содержать UUID, адреса серверов и другие данные доступа. "
+            "Убедитесь, что репозиторий имеет нужную приватность и публикация разрешена. Продолжить?"
+        ):
             return
         def worker():
             try:
@@ -777,6 +990,24 @@ class PULSEWAVEGUI:
             else: subprocess.Popen(["xdg-open", str(SOURCES_FILE)])
         except Exception as exc: messagebox.showerror("Источники", str(exc))
 
+    def save_results_as(self):
+        if not OUTPUT_FILE.exists() or not OUTPUT_FILE.read_text(encoding="utf-8", errors="replace").strip():
+            messagebox.showinfo("Сохранение результата", "Файл fast_vless.txt пока пуст. Сначала выполните проверку.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Сохранить список рабочих серверов",
+            defaultextension=".txt",
+            filetypes=[("Текстовый файл", "*.txt"), ("Все файлы", "*.*")],
+            initialfile="fast_vless.txt",
+        )
+        if not path:
+            return
+        try:
+            shutil.copy2(OUTPUT_FILE, path)
+            messagebox.showinfo("Сохранено", f"Результат сохранён:\\n{path}")
+        except Exception as exc:
+            messagebox.showerror("Ошибка сохранения", str(exc))
+
     def export_csv(self):
         rows = sorted(self.rows_by_link.values(), key=lambda r: r["ping"] if r["ping"] else 10**9)
         if not rows:
@@ -814,7 +1045,7 @@ class PULSEWAVEGUI:
         if not selection:
             return None
         values = self.table.item(selection[0], "values")
-        return values[5] if len(values) > 5 else None
+        return values[6] if len(values) > 6 else None
 
     def connect_selected(self):
         link = self.selected_link()
