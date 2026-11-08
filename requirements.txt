@@ -1,4 +1,4 @@
-httpx==0.28.1
+httpx[socks]==0.28.1
 pyinstaller>=6.0,<7
 pystray>=0.19.5,<1
 Pillow>=10.0,<13

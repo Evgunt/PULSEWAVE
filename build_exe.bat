@@ -27,7 +27,7 @@ echo [3/4] Proverka sintaksisa...
 if errorlevel 1 goto error
 
 echo [4/4] Sborga prilozheniya...
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --windowed --onedir --name "PULSEWAVE" --icon "app_icon.ico" --add-data "app_icon.png;." --version-file "version_info.txt" --hidden-import tkinter --hidden-import tkinter.ttk --hidden-import multi_tester --hidden-import tunnel --hidden-import github_publisher --collect-all keyring --collect-all pystray --collect-all PIL gui.py
+".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --windowed --onedir --name "PULSEWAVE" --icon "app_icon.ico" --add-data "app_icon.png;." --add-data "app_icon.ico;." --version-file "version_info.txt" --hidden-import tkinter --hidden-import tkinter.ttk --hidden-import multi_tester --hidden-import tunnel --hidden-import github_publisher --collect-all keyring --collect-all pystray --collect-all PIL --collect-all socksio gui.py
 if errorlevel 1 goto error
 
 if exist "sources.txt" copy /Y "sources.txt" "dist\PULSEWAVE\sources.txt" >nul

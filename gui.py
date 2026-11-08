@@ -1,5 +1,6 @@
 """PULSEWAVE 4.0.0 — Personal VPN Suite."""
 import csv
+import ctypes
 import json
 import os
 import queue
@@ -31,18 +32,100 @@ TUNNEL_CONFIG = APP_DIR / "vlesschecker_tun.json"
 TUNNEL_LOG = APP_DIR / "vlesschecker_tunnel.log"
 PENDING_TUNNEL = APP_DIR / "pending_tunnel.json"
 
+
+def resource_path(name):
+    """Resolve bundled resources both in source mode and PyInstaller builds."""
+    base = Path(getattr(sys, "_MEIPASS", APP_DIR))
+    candidate = base / name
+    return candidate if candidate.is_file() else APP_DIR / name
+
+
+def install_input_shortcuts(root):
+    """Make clipboard shortcuts and a small context menu reliable in Tk inputs."""
+    def paste(event):
+        try:
+            event.widget.event_generate("<<Paste>>")
+        except tk.TclError:
+            pass
+        return "break"
+
+    def copy(event):
+        try:
+            event.widget.event_generate("<<Copy>>")
+        except tk.TclError:
+            pass
+        return "break"
+
+    def cut(event):
+        try:
+            event.widget.event_generate("<<Cut>>")
+        except tk.TclError:
+            pass
+        return "break"
+
+    for cls in ("Entry", "TEntry", "TCombobox", "Text"):
+        root.bind_class(cls, "<Control-v>", paste, add="+")
+        root.bind_class(cls, "<Control-V>", paste, add="+")
+        root.bind_class(cls, "<Shift-Insert>", paste, add="+")
+        root.bind_class(cls, "<Control-c>", copy, add="+")
+        root.bind_class(cls, "<Control-C>", copy, add="+")
+        root.bind_class(cls, "<Control-x>", cut, add="+")
+
+    menu = tk.Menu(root, tearoff=False, bg="#17232D", fg="#E6F0F4",
+                   activebackground="#00AEB4", activeforeground="#061014")
+    def show_menu(event):
+        widget = event.widget
+        try:
+            widget.focus_set()
+            menu.delete(0, "end")
+            menu.add_command(label="Вырезать", command=lambda: widget.event_generate("<<Cut>>"))
+            menu.add_command(label="Копировать", command=lambda: widget.event_generate("<<Copy>>"))
+            menu.add_command(label="Вставить", command=lambda: widget.event_generate("<<Paste>>"))
+            menu.add_separator()
+            menu.add_command(label="Выделить всё", command=lambda: widget.event_generate("<<SelectAll>>"))
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    for cls in ("Entry", "TEntry", "TCombobox", "Text"):
+        root.bind_class(cls, "<Button-3>", show_menu, add="+")
+
 class PULSEWAVEGUI:
     def __init__(self, root):
         self.root = root
         self.root.title(f"PULSEWAVE {APP_VERSION}")
+        self.app_icon = None
+        # Explicitly set both window and taskbar icons; keep a strong PhotoImage reference.
         try:
-            self.app_icon = tk.PhotoImage(file=str(APP_DIR / "app_icon.png"))
-            self.root.iconphoto(True, self.app_icon)
+            ico_path = resource_path("app_icon.ico")
+            if os.name == "nt" and ico_path.is_file():
+                self.root.iconbitmap(str(ico_path))
+                try:
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PULSEWAVE.Desktop.4")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            png_path = resource_path("app_icon.png")
+            if png_path.is_file():
+                self.app_icon = tk.PhotoImage(file=str(png_path))
+                self.root.iconphoto(True, self.app_icon)
         except Exception:
             self.app_icon = None
+        # Re-apply the native ICO after iconphoto so Windows keeps the small title-bar icon.
+        try:
+            ico_path = resource_path("app_icon.ico")
+            if os.name == "nt" and ico_path.is_file():
+                self.root.iconbitmap(str(ico_path))
+        except Exception:
+            pass
         self.root.configure(bg=BG)
+        self.root.option_add("*Background", BG)
+        self.root.option_add("*Foreground", TEXT)
         self.root.geometry("1180x790")
         self.root.minsize(920, 640)
+        self.root.after(250, self.apply_dark_titlebar)
         self.proc = None
         self.messages = queue.Queue()
         self.reader_thread = None
@@ -72,28 +155,35 @@ class PULSEWAVEGUI:
             pass
         style.configure(".", background=BG, foreground=TEXT, font=("Segoe UI", 9))
         style.configure("TFrame", background=BG)
-        style.configure("TLabelframe", background=BG, foreground=ACCENT, bordercolor="#263943")
-        style.configure("TLabelframe.Label", background=BG, foreground=ACCENT, font=("Segoe UI", 9, "bold"))
+        style.configure("AppShell.TFrame", background=BG)
+        style.configure("TLabelframe", background="#0D151D", foreground=ACCENT, bordercolor="#263943", relief="solid", borderwidth=1)
+        style.configure("TLabelframe.Label", background="#0D151D", foreground=ACCENT, font=("Segoe UI", 9, "bold"))
         style.configure("TLabel", background=BG, foreground=TEXT)
+        style.configure("Card.TLabel", background="#0D151D", foreground=TEXT)
         style.configure("AppTitle.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 22, "bold"))
         style.configure("SubTitle.TLabel", background=BG, foreground=MUTED, font=("Segoe UI", 9))
         style.configure("Metric.TLabel", background=PANEL, foreground=ACCENT, font=("Segoe UI", 18, "bold"))
-        style.configure("TButton", background="#1A2933", foreground=TEXT, bordercolor="#304650", padding=(12, 7))
+        style.configure("TButton", background="#172630", foreground=TEXT, bordercolor="#304650", padding=(14, 9), relief="flat", font=("Segoe UI", 9, "bold"))
         style.map("TButton", background=[("active", "#23404B"), ("disabled", "#17212A")], foreground=[("disabled", "#60717A")])
-        style.configure("Accent.TButton", background="#00AEB4", foreground="#061014", font=("Segoe UI", 9, "bold"), padding=(14, 8))
+        style.configure("Accent.TButton", background="#00C8C8", foreground="#041014", font=("Segoe UI", 10, "bold"), padding=(18, 10), relief="flat")
         style.map("Accent.TButton", background=[("active", "#20E5E5")], foreground=[("active", "#061014")])
-        style.configure("TEntry", fieldbackground="#111B24", foreground=TEXT, insertcolor=TEXT, bordercolor="#304650")
+        style.configure("TEntry", fieldbackground="#111D27", foreground=TEXT, bordercolor="#2C4653", padding=(8, 7), relief="flat")
         style.configure("TCheckbutton", background=BG, foreground=TEXT)
         style.map("TCheckbutton", background=[("active", BG)], foreground=[("active", ACCENT)])
-        style.configure("TNotebook", background=BG, borderwidth=0)
-        style.configure("TNotebook.Tab", background="#17232C", foreground=MUTED, padding=(14, 8))
-        style.map("TNotebook.Tab", background=[("selected", "#20343F")], foreground=[("selected", ACCENT)])
-        style.configure("Treeview", rowheight=29, font=("Segoe UI", 9), background="#101922", fieldbackground="#101922", foreground=TEXT, bordercolor="#263943")
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), background="#1A2933", foreground=ACCENT, relief="flat")
+        style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(0, 5, 0, 0))
+        style.configure("TNotebook.Tab", background="#111D27", foreground=MUTED, padding=(20, 11), borderwidth=0, font=("Segoe UI", 9, "bold"))
+        style.map("TNotebook.Tab", background=[("selected", "#18313A"), ("active", "#1A2933")], foreground=[("selected", ACCENT), ("active", TEXT)])
+        style.configure("Treeview", rowheight=36, font=("Segoe UI", 9), background="#0B131B", fieldbackground="#0B131B", foreground=TEXT, bordercolor="#263943", relief="flat")
+        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), background="#14232D", foreground=ACCENT, relief="flat", padding=(10, 11))
         style.map("Treeview", background=[("selected", "#17434A")], foreground=[("selected", "#FFFFFF")])
         style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor="#1A2933", bordercolor="#1A2933")
+        style.configure("TScrollbar", background="#17232D", troughcolor=BG, bordercolor=BG, arrowcolor=MUTED, relief="flat")
+        style.map("TScrollbar", background=[("active", "#29404A")])
+        style.configure("TCombobox", fieldbackground="#111B24", background="#1A2933", foreground=TEXT, arrowcolor=ACCENT, bordercolor="#304650")
+        style.map("TCombobox", fieldbackground=[("readonly", "#111B24")], foreground=[("readonly", TEXT)])
 
-        shell = ttk.Frame(root, padding=16)
+        install_input_shortcuts(root)
+        shell = ttk.Frame(root, padding=20, style="AppShell.TFrame")
         shell.pack(fill="both", expand=True)
         header = ttk.Frame(shell)
         header.pack(fill="x", pady=(0, 14))
@@ -119,7 +209,7 @@ class PULSEWAVEGUI:
             ttk.Label(card, textvariable=self.metric_vars[key], style="Metric.TLabel").pack(anchor="w")
             metrics.columnconfigure(col, weight=1)
 
-        settings = ttk.LabelFrame(shell, text="Параметры проверки", padding=10)
+        settings = ttk.LabelFrame(shell, text="  ПАРАМЕТРЫ ПРОВЕРКИ  ", padding=(16, 13))
         settings.pack(fill="x", pady=(0, 10))
         self.concurrency_var = tk.StringVar(value=str(self.config.get("concurrency", 100)))
         self.target_var = tk.StringVar(value=str(self.config.get("target", 60)))
@@ -137,7 +227,7 @@ class PULSEWAVEGUI:
         ttk.Checkbutton(settings, text="При закрытии прятать в системный трей", variable=self.tray_on_close_var, command=self.save_preferences).grid(row=2, column=2, sticky="w", padx=8, pady=(9, 0))
         settings.columnconfigure(3, weight=1)
 
-        schedule = ttk.LabelFrame(shell, text="Автоматическая проверка", padding=9)
+        schedule = ttk.LabelFrame(shell, text="  АВТОМАТИЧЕСКАЯ ПРОВЕРКА  ", padding=(16, 12))
         schedule.pack(fill="x", pady=(0, 10))
         self.schedule_enabled_var = tk.BooleanVar(value=self.scheduler_enabled)
         ttk.Checkbutton(schedule, text="Включить расписание", variable=self.schedule_enabled_var, command=self.toggle_scheduler).pack(side="left")
@@ -161,7 +251,7 @@ class PULSEWAVEGUI:
         ttk.Button(actions, text="О программе", command=self.about).pack(side="left", padx=7)
         ttk.Button(actions, text="Очистить журнал", command=self.clear_log).pack(side="right")
 
-        tunnel_bar = ttk.LabelFrame(shell, text="VPN-туннель (TUN)", padding=10)
+        tunnel_bar = ttk.LabelFrame(shell, text="  VPN-ТУННЕЛЬ  ", padding=(16, 12))
         tunnel_bar.pack(fill="x", pady=(0, 10))
         self.tunnel_status = tk.StringVar(value="Отключено")
         ttk.Label(tunnel_bar, text="Статус:").pack(side="left")
@@ -220,6 +310,30 @@ class PULSEWAVEGUI:
         if self.scheduler_enabled:
             self.next_scheduled_run = time.monotonic() + int(self.schedule_interval_var.get()) * 60
         self.root.after(1000, self.scheduler_tick)
+
+    def apply_dark_titlebar(self):
+        """Request a dark native title bar on supported Windows 10/11 builds."""
+        if os.name != "nt":
+            return
+        try:
+            self.root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            if not hwnd:
+                hwnd = self.root.winfo_id()
+            value = ctypes.c_int(1)
+            dwm = ctypes.windll.dwmapi
+            # Attribute 20 is DWMWA_USE_IMMERSIVE_DARK_MODE on current Windows;
+            # 19 is used by older Windows 10 builds.
+            result = dwm.DwmSetWindowAttribute(
+                hwnd, 20, ctypes.byref(value), ctypes.sizeof(value)
+            )
+            if result != 0:
+                dwm.DwmSetWindowAttribute(
+                    hwnd, 19, ctypes.byref(value), ctypes.sizeof(value)
+                )
+        except Exception:
+            # Unsupported Windows versions simply retain their system title bar.
+            pass
 
     def load_ui_config(self):
         try:
