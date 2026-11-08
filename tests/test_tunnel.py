@@ -12,6 +12,8 @@ class TunnelConfigTests(unittest.TestCase):
         self.assertEqual(config["inbounds"][0]["type"], "tun")
         self.assertTrue(config["inbounds"][0]["auto_route"])
         self.assertTrue(config["inbounds"][0]["strict_route"])
+        self.assertNotIn("sniff", config["inbounds"][0])
+        self.assertIn({"action": "sniff"}, config["route"]["rules"])
         self.assertEqual(config["route"]["final"], "proxy")
         self.assertEqual(config["outbounds"][0]["type"], "vless")
 

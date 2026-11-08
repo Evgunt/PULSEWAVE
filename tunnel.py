@@ -43,15 +43,17 @@ def build_tun_config(link: str, interface_name: str = "PULSEWAVE") -> dict[str, 
                 "interface_name": interface_name,
                 "address": ["172.19.0.1/30"],
                 "auto_route": True,
-                "strict_route": True,
-                "sniff": True
+                "strict_route": True
             }
         ],
         "outbounds": [outbound, {"type": "direct", "tag": "direct"}, {"type": "block", "tag": "block"}],
         "route": {
             "auto_detect_interface": True,
             "final": "proxy",
-            "rules": [{"protocol": "dns", "action": "hijack-dns"}]
+            "rules": [
+                {"action": "sniff"},
+                {"protocol": "dns", "action": "hijack-dns"}
+            ]
         }
     }
 
@@ -80,7 +82,8 @@ class TunnelController:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
         )
         if check.returncode != 0:
-            details = (check.stderr or check.stdout or "Неизвестная ошибка проверки конфигурации").strip()
+            details = "\\n".join(part.strip() for part in (check.stdout, check.stderr) if part and part.strip())
+            details = details or "Неизвестная ошибка проверки конфигурации"
             raise RuntimeError(f"Sing-box отклонил конфигурацию:\n{details}")
 
     def start(self, link: str) -> None:
@@ -91,12 +94,39 @@ class TunnelController:
         self.prepare(link)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_stream = self.log_path.open("a", encoding="utf-8", buffering=1)
-        self.process = subprocess.Popen(
-            [str(self.singbox_exe), "run", "-c", str(self.config_path)],
-            cwd=str(self.singbox_exe.parent), stdout=self._log_stream,
-            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        )
+        self._log_stream.write("\\n=== PULSEWAVE TUN startup ===\\n")
+        self._log_stream.flush()
+        try:
+            self.process = subprocess.Popen(
+                [str(self.singbox_exe), "run", "-c", str(self.config_path)],
+                cwd=str(self.singbox_exe.parent), stdout=self._log_stream,
+                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+            # Sing-box can reject a configuration or fail to create the adapter
+            # immediately after process creation. Detect that before reporting success.
+            import time
+            time.sleep(0.8)
+            code = self.process.poll()
+            if code is not None:
+                self.process = None
+                self._log_stream.flush()
+                try:
+                    details = self.log_path.read_text(encoding="utf-8", errors="replace")[-7000:]
+                except OSError:
+                    details = "Не удалось прочитать журнал Sing-box."
+                raise RuntimeError(
+                    f"Sing-box завершился сразу после запуска (код {code}).\\n"
+                    f"Подробности в {self.log_path.name}:\\n{details[-5000:]}"
+                )
+        except Exception:
+            if self._log_stream:
+                try:
+                    self._log_stream.close()
+                except Exception:
+                    pass
+                self._log_stream = None
+            raise
 
     def stop(self) -> None:
         proc = self.process
