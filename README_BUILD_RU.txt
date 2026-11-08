@@ -1,4 +1,4 @@
-PULSEWAVE 4.0.0
+PULSEWAVE 4.0.1
 
 Полная документация по запуску, сборке EXE, TUN и лицензиям находится в README.md.
 Сборка Windows выполняется запуском build_exe.bat.
